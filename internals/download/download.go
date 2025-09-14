@@ -39,8 +39,8 @@ type ChunkProgress struct {
 }
 
 const (
-	ChunkSize     = 1024 * 1024 * 5 // 10MB chunks
-	MaxGoroutines = 20              // Number of concurrent downloads
+	ChunkSize     = 1024 * 1024 * 10 // 10MB chunks
+	MaxGoroutines = 25               // Number of concurrent downloads
 )
 
 func NewDownloadManager(urlMetaData *utils.UrlMetaData, storage *storage.BoltStorage, outputDir string) *DownloadManager {
@@ -70,7 +70,6 @@ func (dm *DownloadManager) Download() {
 		StartTime:  time.Now(),
 		LastUpdate: time.Now(),
 	}
-	fmt.Printf("Saving Progress: %v", progress)
 	if err := dm.saveProgress(progress); err != nil {
 		panic(err)
 	}
@@ -86,6 +85,7 @@ func (dm *DownloadManager) saveProgress(progress *storage.DownloadProgress) erro
 }
 
 func (dm *DownloadManager) downloadWithResume(progress *storage.DownloadProgress) {
+	startTime := time.Now()
 	existingChunks, canResume := dm.checkExistingDownload()
 	var chunks []storage.ChunkInfo
 
@@ -107,6 +107,7 @@ func (dm *DownloadManager) downloadWithResume(progress *storage.DownloadProgress
 	if err := dm.saveChunkInfo(chunks); err != nil {
 		fmt.Printf("Warning: Could not save chunk info: %v\n", err)
 	}
+
 	dm.saveProgress(progress)
 
 	//Download Chunks concurrently
@@ -115,7 +116,7 @@ func (dm *DownloadManager) downloadWithResume(progress *storage.DownloadProgress
 	semaphore := make(chan struct{}, dm.MaxGoroutines)
 
 	errors := make(chan error, len(chunks))
-	progressChan := make(chan ChunkProgress, 256)
+	progressChan := make(chan ChunkProgress)
 	go dm.trackProgress(progress, progressChan)
 	for i, chunk := range chunks {
 
@@ -128,7 +129,6 @@ func (dm *DownloadManager) downloadWithResume(progress *storage.DownloadProgress
 			defer wg.Done()
 			semaphore <- struct{}{}        //Acquire semaphore
 			defer func() { <-semaphore }() //Release semaphore
-			fmt.Printf("Starting download for chunk %d\n", index)
 			if err := dm.downloadChunkWithProgress(c, progressChan); err != nil {
 				fmt.Printf("Error in download Chunk with progress\n")
 				errors <- fmt.Errorf("Chunk %d failed %v ", index, err)
@@ -137,7 +137,7 @@ func (dm *DownloadManager) downloadWithResume(progress *storage.DownloadProgress
 			}
 			c.Completed = true
 			dm.updateChunkStatus(c)
-			fmt.Printf("Chunk %d completed (%d-%d)\n", index, c.Start, c.End)
+			// fmt.Printf("Chunk %d completed (%d-%d)\n", index, c.Start, c.End)
 		}(i, chunk)
 	}
 	wg.Wait()
@@ -165,6 +165,7 @@ func (dm *DownloadManager) downloadWithResume(progress *storage.DownloadProgress
 	dm.cleanupChunkInfo()
 
 	fmt.Printf("Download completed: %s\n", dm.OutPutPath)
+	fmt.Printf("Download complted at %s\n", time.Since(startTime))
 }
 
 func (dm *DownloadManager) checkExistingDownload() ([]storage.ChunkInfo, bool) {
@@ -202,12 +203,20 @@ func (dm *DownloadManager) calculateChunks() []storage.ChunkInfo {
 		return chunks
 	}
 
+	/**
+	100 ÷ 30 → 3.33 → 4 chunks.
+	Problem with integer division
+	100 / 30 == 3  // truncates decimal
+	Adding ChunkSize - 1 ensures that any remainder pushes the
+	division result up by 1, giving an extra chunk for leftover bytes
+	 **/
 	numChunks := (totalSize + dm.ChunkSize - 1) / dm.ChunkSize
-
+	testTotal := int64(0)
 	for i := int64(0); i < numChunks; i++ {
 		start := i * dm.ChunkSize
 		end := start + dm.ChunkSize - 1
 		if end >= totalSize {
+			//Adjust the end
 			end = totalSize - 1
 		}
 		chunks = append(chunks, storage.ChunkInfo{
@@ -216,6 +225,7 @@ func (dm *DownloadManager) calculateChunks() []storage.ChunkInfo {
 			End:      end,
 			FilePath: fmt.Sprintf("%s.tmp/chunk%d", dm.OutPutPath, i),
 		})
+		testTotal += (end - start + 1)
 	}
 	return chunks
 }
@@ -238,18 +248,18 @@ func (dm *DownloadManager) trackProgress(progress *storage.DownloadProgress, pro
 			}
 			// Store the current total bytes for this chunk (don't add to previous value)
 			chunkProgress[cp.ChunkIndex] = cp.BytesRead
-			fmt.Printf("DEBUG: Chunk %d progress: %d bytes\n", cp.ChunkIndex, cp.BytesRead)
 
 		case <-ticker.C:
+			// fmt.Printf("DEBUG: Ticker ticked, calculating overall progress\n")
 			var totalDownloaded int64
 			completedChunks := 0
 
-			for chunkIndex, downloaded := range chunkProgress {
+			for _, downloaded := range chunkProgress {
 				totalDownloaded += downloaded
 				if downloaded > 0 {
 					completedChunks++
 				}
-				fmt.Printf("DEBUG: Chunk %d has downloaded %d bytes\n", chunkIndex, downloaded)
+				// fmt.Printf("DEBUG: Chunk %d has downloaded %d bytes\n", chunkIndex, downloaded)
 			}
 
 			progress.DownloadedSize = totalDownloaded
@@ -283,7 +293,6 @@ func (dm *DownloadManager) downloadChunkWithProgress(chunk storage.ChunkInfo, pr
 	}
 	client := &http.Client{Transport: tr}
 
-	// Optional: per-chunk context if you want an upper bound (e.g. 20 minutes)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
@@ -326,7 +335,7 @@ func (dm *DownloadManager) downloadChunkWithProgress(chunk storage.ChunkInfo, pr
 		return err
 	}
 
-	fmt.Printf("Chunk %d downloaded in %s\n", chunk.Index, elapsed)
+	// fmt.Printf("Chunk %d downloaded in %s\n", chunk.Index, elapsed)
 	return nil
 }
 
