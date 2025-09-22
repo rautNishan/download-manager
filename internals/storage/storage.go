@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	"go.etcd.io/bbolt"
 )
 
 type ChunkInfo struct {
-	Index     int
-	Start     int64
-	End       int64
-	FilePath  string
-	Completed bool
+	Index          int
+	Start          int64
+	End            int64
+	FilePath       string
+	Completed      bool
+	ChunkTotalSize int64
+	DownloadedSize int64
 }
 
 var (
@@ -31,20 +32,6 @@ const StorageBolt Storage = "Bolt"
 type BoltStorage struct {
 	DB   *bbolt.DB
 	Path string
-}
-
-type DownloadProgress struct {
-	DownloadId      string
-	URL             string
-	FileName        string
-	TotalSize       int64
-	DownloadedSize  int64
-	Status          string
-	ChunkCount      int
-	CompletedChunks int
-	StartTime       time.Time
-	LastUpdate      time.Time
-	Speed           float64
 }
 
 func NewBoltStorage(dir string) *BoltStorage {
@@ -78,19 +65,6 @@ func NewBoltStorage(dir string) *BoltStorage {
 	}
 }
 
-func (bs *BoltStorage) SaveDownloadProgress(progressId string, progress *DownloadProgress) error {
-	return bs.DB.Update(func(tx *bbolt.Tx) error {
-		bucket := tx.Bucket(DownloadsBucket)
-		data, err := json.Marshal(progress)
-
-		if err != nil {
-			return fmt.Errorf("Failed to marshal progress: %v\n", err)
-		}
-
-		return bucket.Put([]byte(progressId), data)
-	})
-}
-
 func (bs *BoltStorage) GetChunkInfo(downloadId string) ([]ChunkInfo, error) {
 	var chunks []ChunkInfo
 	err := bs.DB.View(func(tx *bbolt.Tx) error {
@@ -121,7 +95,6 @@ func (bs *BoltStorage) UpdateChunkStatus(downloadID string, chunkIndex int, comp
 	return bs.DB.Update(func(tx *bbolt.Tx) error {
 		bucket := tx.Bucket(ChunksBucket)
 		data := bucket.Get([]byte(downloadID))
-
 		if data == nil {
 			return fmt.Errorf("chunks not found for download: %s", downloadID)
 		}

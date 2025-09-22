@@ -14,12 +14,19 @@ func main() {
 	//First initialize storage
 	boltStorage := storage.NewBoltStorage("./internals/storage")
 	defer boltStorage.DB.Close()
-	url := "url"
+	dm := download.NewDownloadManager(boltStorage, "./Downloads")
+	url := ""
 	metadata := getUrlMetaData(url)
-	fmt.Printf("THis is url: %s", metadata.OriginalUrl)
-	dm := download.NewDownloadManager(metadata, boltStorage, "./Downloads")
-	dm.Download()
-	fmt.Printf("Download completed: %s\n", dm.OutPutPath)
+	taskId := ""
+	var task *download.Task
+	if taskId == "" {
+		fmt.Printf("No task found so New Download\n")
+		task = download.NewTask(metadata, dm)
+		dm.NewDownload(task)
+	} else {
+		fmt.Printf("Resuming download for %s\n", taskId)
+		dm.ResumeDownload(taskId)
+	}
 }
 
 func getUrlMetaData(url string) *utils.UrlMetaData {
