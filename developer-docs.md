@@ -33,4 +33,34 @@ For example:
 
 ---
 
+## TODO / Roadmap
+
+1. **Support partial-chunk resume**  
+   - Allow resuming *within* a chunk so partially downloaded data is not discarded on process stop/crash.  
+   - Persist per-chunk offset and partial-file metadata; on resume continue from the saved offset.  
+   - Consider using per-chunk checksums or blob manifests to validate partial data.
+
+2. **UI feature**  
+   - Provide a basic UI (CLI TUI and/or web dashboard) for viewing active downloads, per-chunk progress, and controls (pause/resume/cancel).
+
+3. **Expose interface for UI**  
+   - Design and export a clean Go interface / API for UIs to query progress, control downloads, and subscribe to events (progress updates, errors, completion).  
+   - Consider both polling endpoints and event-based websockets/callbacks.
+
+4. **Fix progress calculation anomalies**  
+   - Investigate and correct cases where progress can exceed 100%. Likely causes: double-counting session bytes, race conditions updating persistent state, or mismatch between `TotalSize` and sum of chunk sizes.  
+   - Add clamping and consistency checks, and unit tests that simulate interruptions and resumptions.
+
+5. **Support non-range (non-resumable) downloads**  
+   - Detect servers that do not support `Range` (e.g., missing `Accept-Ranges` or `206` responses) and gracefully fallback to a single-stream download mode.  
+   - Expose this as a policy (e.g., `ForceChunked` vs `FallbackToSingleStream`) so callers can control behavior.
+
+6. **Torrent support (optional / extension)**  
+   - Add support for BitTorrent-style downloads either by integrating a torrent client library or exposing a plugin interface so torrent backends can be added later.  
+   - Define clear boundaries: torrent metadata handling, peer management, piece verification, and how it maps to the existing chunk/merge flow.
+
+7. **Contirbute for features**
+   - Can add the features/todo list here 
+---
+
 <small>Generated on contributor request — keep this doc in the repo root as `DOWNLOAD_MANAGER_DEV_GUIDE.md`.</small>
