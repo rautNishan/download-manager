@@ -63,4 +63,3 @@ For example:
    - Can add the features/todo list here 
 ---
 
-<small>Generated on contributor request — keep this doc in the repo root as `DOWNLOAD_MANAGER_DEV_GUIDE.md`.</small>
