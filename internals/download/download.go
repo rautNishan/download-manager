@@ -149,8 +149,8 @@ func (dm *DownloadManager) ResumeDownload(taskId string) {
 
 	progressChan := make(chan ChunkProgress)
 	completionChan := make(chan int, len(chunks))
-
-	go existingTask.trackProgress(progressChan, completionChan)
+	downloadeTillNow := existingTask.DownloadedSize
+	go existingTask.trackProgress(progressChan, completionChan, downloadeTillNow)
 
 	for i, chuck := range chunks {
 		wg.Add(1)
@@ -303,7 +303,7 @@ func (dm *DownloadManager) NewDownload(task *Task) {
 	progressChan := make(chan ChunkProgress)
 	completionChan := make(chan int, len(chunks))
 
-	go task.trackProgress(progressChan, completionChan)
+	go task.trackProgress(progressChan, completionChan, 0)
 	activeGoroutines := 0
 
 	for i, chuck := range chunks {

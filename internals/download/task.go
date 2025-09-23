@@ -44,12 +44,14 @@ func NewTask(UrlMeta *utils.UrlMetaData, downloadManager *DownloadManager) *Task
 	}
 }
 
-func (task *Task) trackProgress(progressChan <-chan ChunkProgress, completionChan <-chan int) {
+func (task *Task) trackProgress(progressChan <-chan ChunkProgress, completionChan <-chan int, totalDownloadTillNow int64) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	currentSessionProgress := make(map[int]int64)
-	completedSession := make(map[int]bool)
+	completedInSession := make(map[int]bool)
+	// Track total bytes from chunks completed in this session
+	var sessionCompletedBytes int64
 
 	for {
 		select {
@@ -58,31 +60,40 @@ func (task *Task) trackProgress(progressChan <-chan ChunkProgress, completionCha
 				fmt.Println("DEBUG: Progress channel closed")
 				return
 			}
-
-			//Put in map if not completed
-			if !completedSession[cp.ChunkIndex] {
+			// Only record bytes while chunk isn't marked completed in this session
+			if !completedInSession[cp.ChunkIndex] {
 				currentSessionProgress[cp.ChunkIndex] = cp.BytesRead
 			}
 
-		case chunKIndex, ok := <-completionChan:
+		case chunkIndex, ok := <-completionChan:
 			if !ok {
 				fmt.Println("DEBUG: Completion channel closed")
 				return
 			}
-			completedSession[chunKIndex] = true
-			delete(currentSessionProgress, chunKIndex)
+			// Mark as completed and add its bytes to session completed total
+			if !completedInSession[chunkIndex] {
+				completedInSession[chunkIndex] = true
+				if chunkBytes, exists := currentSessionProgress[chunkIndex]; exists {
+					sessionCompletedBytes += chunkBytes
+					delete(currentSessionProgress, chunkIndex)
+				}
+			}
 
 		case <-ticker.C:
-			var currentSessionTotal int64
-			for _, chunkSessionByte := range currentSessionProgress {
-				currentSessionTotal += chunkSessionByte
-			}
-			totalDownloaded := task.DownloadedSize + currentSessionTotal
-			progress := float64(totalDownloaded) / float64(task.TotalSize) * 100
-			fmt.Printf("Task total size: %d | Downloaded: %d (previous: %d + session: %d) | Progress: %.2f%%\n",
-				task.TotalSize, totalDownloaded, task.DownloadedSize, currentSessionTotal, progress)
-		}
+			var currentSessionActive int64
 
+			// Sum bytes from chunks still actively downloading
+			for _, chunkBytes := range currentSessionProgress {
+				currentSessionActive += chunkBytes
+			}
+
+			// Total = base from previous sessions + completed in this session + currently active
+			totalDownloaded := totalDownloadTillNow + sessionCompletedBytes + currentSessionActive
+			progress := float64(totalDownloaded) / float64(task.TotalSize) * 100
+
+			fmt.Printf("Task total size: %d | Downloaded: %d (base: %d + session completed: %d + session active: %d) | Progress: %.2f%%\n",
+				task.TotalSize, totalDownloaded, totalDownloadTillNow, sessionCompletedBytes, currentSessionActive, progress)
+		}
 	}
 }
 
